@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Chat Room</title>
+</head>
+<body>
+    <textarea id="chat-log" cols="100" rows="20"></textarea><br/>
+    <input id="chat-message-input" type="text" size="100"/><br/>
+    <input id="chat-message-submit" type="button" value="Send"/>
+</body>
+<script>
+
+const TURN_SERVER_URL = 'localhost:3478';
+const TURN_SERVER_USERNAME = 'username';
+const TURN_SERVER_CREDENTIAL = 'credential';
+// WebRTC config: you don't have to change this for the example to work
+// If you are testing on localhost, you can just use PC_CONFIG = {}
+const PC_CONFIG = {
+  iceServers: [
+    {
+      urls: 'turn:' + TURN_SERVER_URL + '?transport=tcp',
+      username: TURN_SERVER_USERNAME,
+      credential: TURN_SERVER_CREDENTIAL
+    },
+    {
+      urls: 'turn:' + TURN_SERVER_URL + '?transport=udp',
+      username: TURN_SERVER_USERNAME,
+      credential: TURN_SERVER_CREDENTIAL
+    }
+  ]
+};
+    var roomName = "{{ room_name|escapejs }}";
+
+    var chatSocket = new WebSocket(
+        'ws://' + window.location.host +
+        '/conference_room/' + '1' + '/');
+    console.log(chatSocket)
+
+    chatSocket.onmessage = function(e) {
+        var data = JSON.parse(e.data);
+        var message = data['message'];
+        document.querySelector('#chat-log').value += (message + '\n');
+    };
+
+    chatSocket.onopen = function(e) {
+        handleSignalingData(data);
+    }
+
+    chatSocket.readyState = function(e){
+        createPeerConnection();
+        sendOffer();
+    }
+
+    chatSocket.onclose = function(e) {
+        console.error('Chat socket closed unexpectedly');
+    };
+
+    document.querySelector('#chat-message-input').focus();
+    document.querySelector('#chat-message-input').onkeyup = function(e) {
+        if (e.keyCode === 13) {  // enter, return
+            document.querySelector('#chat-message-submit').click();
+        }
+    };
+
+    document.querySelector('#chat-message-submit').onclick = function(e) {
+        var messageInputDom = document.querySelector('#chat-message-input');
+        var message = messageInputDom.value;
+        chatSocket.send(JSON.stringify({
+            'message': message
+        }));
+
+
+        messageInputDom.value = '';
+    };
+
+    // WebRTC methods
+let pc;
+let localStream;
+let remoteStreamElement = document.querySelector('#remoteStream');
+
+let getLocalStream = () => {
+  navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+    .then((stream) => {
+      console.log('Stream found');
+      localStream = stream;
+      // Connect after making sure that local stream is availble
+      // socket.connect();
+      chatSocket.connect();
+    })
+    .catch(error => {
+      console.error('Stream not found: ', error);
+    });
+}
+
+let createPeerConnection = () => {
+  try {
+    pc = new RTCPeerConnection(PC_CONFIG);
+    pc.onicecandidate = onIceCandidate;
+    pc.onaddstream = onAddStream;
+    pc.addStream(localStream);
+    console.log('PeerConnection created');
+  } catch (error) {
+    console.error('PeerConnection failed: ', error);
+  }
+};
+
+let sendOffer = () => {
+  console.log('Send offer');
+  pc.createOffer().then(
+    setAndSendLocalDescription,
+    (error) => { console.error('Send offer failed: ', error); }
+  );
+};
+
+let sendAnswer = () => {
+  console.log('Send answer');
+  pc.createAnswer().then(
+    setAndSendLocalDescription,
+    (error) => { console.error('Send answer failed: ', error); }
+  );
+};
+
+let setAndSendLocalDescription = (sessionDescription) => {
+  pc.setLocalDescription(sessionDescription);
+  console.log('Local description set');
+  sendData(sessionDescription);
+};
+
+let onIceCandidate = (event) => {
+  if (event.candidate) {
+    console.log('ICE candidate');
+    sendData({
+      type: 'candidate',
+      candidate: event.candidate
+    });
+  }
+};
+
+let onAddStream = (event) => {
+  console.log('Add stream');
+  remoteStreamElement.srcObject = event.stream;
+};
+
+let handleSignalingData = (data) => {
+  switch (data.type) {
+    case 'offer':
+      createPeerConnection();
+      pc.setRemoteDescription(new RTCSessionDescription(data));
+      sendAnswer();
+      break;
+    case 'answer':
+      pc.setRemoteDescription(new RTCSessionDescription(data));
+      break;
+    case 'candidate':
+      pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      break;
+  }
+};
+
+// Start connection
+getLocalStream();
+</script>
+</html>
