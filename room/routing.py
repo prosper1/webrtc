@@ -3,5 +3,5 @@ from .consumers import ConferenceConsumer
 
 
 websocket_urlpatterns = [
-    re_path(r'ws/conference_room/(?P<room_name>\w+',ConferenceConsumer),
+    re_path(r'ws/conference_room/(?P<room_name>\w+)/$',ConferenceConsumer),
 ]
